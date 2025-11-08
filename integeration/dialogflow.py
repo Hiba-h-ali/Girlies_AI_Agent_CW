@@ -2,14 +2,15 @@ import os
 import json
 from google.auth import default
 from google.oauth2 import service_account
-from google.cloud.dialogflow_v3 import SessionsClient, DetectIntentRequest, DetectIntentResponse, QueryInput, TextInput,QueryParametes
+from google.cloud.dialogflowcx import SessionsClient
+from google.cloud.dialogflowcx_v3.types.session import DetectIntentRequest, DetectIntentResponse, QueryInput, TextInput, QueryParameters
 import uuid
 
 LOCATION = "us-central1"
 PROJECT_ID = "girlies-ai-agent"
 AGENT_ID = "4a8116a1-9f58-4b71-8cf0-f2faee516a2d"
 LANGUAGE_CODE = "ar"
-API_ENDPOINT = f"{LOCATION}dialogflow.googleapis.com:443"
+API_ENDPOINT = f"{LOCATION}-dialogflow.googleapis.com:443"
 
 class Dialogflow:
     _instance = None
@@ -22,15 +23,40 @@ class Dialogflow:
 
     def __init__(self):
         if not Dialogflow._initialized:
-            creds_json_string = os.environ.get("GCP_CREDENTIALS")
-            if creds_json_string:
+            credentials = None
+            # Option 1: Check for credentials file path from environment variable
+            creds_file_path = os.environ.get("GCP_CREDENTIALS_FILE")
+            if creds_file_path and os.path.exists(creds_file_path):
+                credentials = service_account.Credentials.from_service_account_file(creds_file_path)
+            # Option 2: Check for credentials JSON string
+            elif os.environ.get("GCP_CREDENTIALS"):
+                creds_json_string = os.environ.get("GCP_CREDENTIALS")
                 creds_json = json.loads(creds_json_string)
                 credentials = service_account.Credentials.from_service_account_info(creds_json)
+            # Option 3: Check for default credentials file in project directory
             else:
-                credentials,_ = default()
+                # Look for common credential file names in the project root
+                project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                default_creds_files = [
+                    os.path.join(project_root, "girlies-ai-agent-84d2cbf6976f.json"),
+                    os.path.join(project_root, "credentials.json"),
+                    os.path.join(project_root, "gcp-credentials.json"),
+                ]
+                for creds_file in default_creds_files:
+                    if os.path.exists(creds_file):
+                        credentials = service_account.Credentials.from_service_account_file(creds_file)
+                        break
+                # Option 4: Use default credentials (for local development with gcloud auth)
+                if credentials is None:
+                    try:
+                        credentials, _ = default()
+                    except Exception:
+                        raise Exception(
+                            "No GCP credentials found. Please set GCP_CREDENTIALS_FILE environment variable, "
+                            "or place credentials.json in the project root, or run 'gcloud auth application-default login'"
+                        )
             self.client = SessionsClient(credentials=credentials, client_options={"api_endpoint": API_ENDPOINT})
             Dialogflow._initialized = True
-        return Dialogflow._instance
 
 # يلي بتاخد الرسالة وبترد عليها 
     def detect_intent(self, query, session_id=None):

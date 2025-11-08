@@ -85,9 +85,11 @@ class Dialogflow:
                 with open(audio_file_path, 'rb') as f:
                     audio_bytes = f.read()
             query_input = self.build_audio_query_input(audio_bytes, audio_encoding, sample_rate_hertz)
-        else:
+        elif query:
             # Handle text input
             query_input = self.build_query_input(query)
+        else:
+            raise ValueError("Either 'query' (text) or 'audio_bytes'/'audio_file_path' must be provided")
         
         request = self.build_detect_intent_request(query_input, session_path)
         response = self.client.detect_intent(request=request)

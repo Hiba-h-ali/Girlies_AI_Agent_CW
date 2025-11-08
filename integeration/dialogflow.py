@@ -3,7 +3,8 @@ import json
 from google.auth import default
 from google.oauth2 import service_account
 from google.cloud.dialogflowcx import SessionsClient
-from google.cloud.dialogflowcx_v3.types.session import DetectIntentRequest, DetectIntentResponse, QueryInput, TextInput, QueryParameters
+from google.cloud.dialogflowcx_v3.types.session import DetectIntentRequest, DetectIntentResponse, QueryInput, TextInput, AudioInput, QueryParameters
+from google.cloud.dialogflowcx_v3.types.audio_config import InputAudioConfig, AudioEncoding
 import uuid
 
 LOCATION = "us-central1"
@@ -59,10 +60,35 @@ class Dialogflow:
             Dialogflow._initialized = True
 
 # يلي بتاخد الرسالة وبترد عليها 
-    def detect_intent(self, query, session_id=None):
+    def detect_intent(self, query, session_id=None, audio_bytes=None, audio_file_path=None, audio_encoding=AudioEncoding.AUDIO_ENCODING_LINEAR_16, sample_rate_hertz=16000):
+        """
+        Detect intent from text or voice message.
+        
+        Args:
+            query: Text query (str) - required for text input
+            session_id: Optional session ID (str)
+            audio_bytes: Audio data as bytes - required for audio input
+            audio_file_path: Path to audio file - alternative to audio_bytes
+            audio_encoding: Audio encoding format (default: LINEAR_16)
+            sample_rate_hertz: Sample rate in Hz (default: 16000)
+        
+        Returns:
+            tuple: (response_text, session_id)
+        """
         session_id = session_id or str(uuid.uuid4())
         session_path = self.build_session_path(session_id)
-        query_input = self.build_query_input(query)
+        
+        # Determine if input is audio or text
+        if audio_bytes is not None or audio_file_path is not None:
+            # Handle audio input
+            if audio_file_path:
+                with open(audio_file_path, 'rb') as f:
+                    audio_bytes = f.read()
+            query_input = self.build_audio_query_input(audio_bytes, audio_encoding, sample_rate_hertz)
+        else:
+            # Handle text input
+            query_input = self.build_query_input(query)
+        
         request = self.build_detect_intent_request(query_input, session_path)
         response = self.client.detect_intent(request=request)
         return self.extract_response_text(response), session_id
@@ -71,8 +97,19 @@ class Dialogflow:
         return f"projects/{PROJECT_ID}/locations/{LOCATION}/agents/{AGENT_ID}/sessions/{session_id}"
     
     def build_query_input(self, query):
+        """Build query input for text messages."""
         text_input = TextInput(text=query)
         return QueryInput(text=text_input, language_code=LANGUAGE_CODE)
+    
+    def build_audio_query_input(self, audio_bytes, audio_encoding=AudioEncoding.AUDIO_ENCODING_LINEAR_16, sample_rate_hertz=16000):
+        """Build query input for voice/audio messages."""
+        audio_config = InputAudioConfig(
+            audio_encoding=audio_encoding,
+            sample_rate_hertz=sample_rate_hertz,
+            language_code=LANGUAGE_CODE
+        )
+        audio_input = AudioInput(config=audio_config, audio=audio_bytes)
+        return QueryInput(audio=audio_input, language_code=LANGUAGE_CODE)
     
     def build_detect_intent_request(self, query_input, session_path):
         return DetectIntentRequest(session=session_path, query_input=query_input)
@@ -83,3 +120,5 @@ class Dialogflow:
         
         else:
             return response.query_result.response_messages[0].text.text[0]
+    
+    

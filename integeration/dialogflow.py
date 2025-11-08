@@ -107,8 +107,7 @@ class Dialogflow:
         """Build query input for voice/audio messages."""
         audio_config = InputAudioConfig(
             audio_encoding=audio_encoding,
-            sample_rate_hertz=sample_rate_hertz,
-            language_code=LANGUAGE_CODE
+            sample_rate_hertz=sample_rate_hertz
         )
         audio_input = AudioInput(config=audio_config, audio=audio_bytes)
         return QueryInput(audio=audio_input, language_code=LANGUAGE_CODE)

@@ -1,24 +1,20 @@
 from domain import ai_agent 
-from fastapi import APIRouter, File, UploadFile, Form, Query, Body
+from fastapi import APIRouter, File, UploadFile, Form, Query, Body, Request
 from typing import Optional
 from pydantic import BaseModel
 import base64
+import json
 
 router = APIRouter()
 
-class TextMessageRequest(BaseModel):
-    message: str
+class MessageRequest(BaseModel):
+    message: Optional[str] = None
+    audio_data: Optional[str] = None  # Base64 encoded audio
     session_id: Optional[str] = None
-
-class AudioMessageRequest(BaseModel):
-    audio_data: str  # Base64 encoded audio
-    session_id: Optional[str] = None
-    message: Optional[str] = None  # Optional text message along with audio
 
 @router.post('/message')
 async def ai_agent_message(
-    text_request: Optional[TextMessageRequest] = Body(None),
-    audio_request: Optional[AudioMessageRequest] = Body(None),
+    request: Request,
     session_id: Optional[str] = Query(None),
     message: Optional[str] = Form(None),
     audio_file: Optional[UploadFile] = File(None)
@@ -46,35 +42,45 @@ async def ai_agent_message(
     
     session_id: optional query parameter to maintain conversation context
     """
+    from fastapi import HTTPException
+    
     audio_bytes = None
     audio_file_path = None
     final_message = ""
     final_session_id = session_id
     
-    # Handle audio request with base64 encoded audio (for recorded audio)
-    if audio_request:
-        try:
-            # Decode base64 audio data
-            audio_bytes = base64.b64decode(audio_request.audio_data)
-            if audio_request.message:
-                final_message = audio_request.message
-            else:
-                final_message = ""  # Audio-only request
-            if audio_request.session_id:
-                final_session_id = audio_request.session_id
-        except Exception as e:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=400, detail=f"Invalid base64 audio data: {str(e)}")
+    # Check content type to determine how to parse the request
+    content_type = request.headers.get("content-type", "")
     
-    # Handle JSON body request (text message only)
-    elif text_request:
-        final_message = text_request.message
-        if text_request.session_id:
-            final_session_id = text_request.session_id
+    # Handle JSON body (for text or base64 audio)
+    if "application/json" in content_type:
+        try:
+            body = await request.json()
+            json_request = MessageRequest(**body)
+            
+            # Handle base64 audio data
+            if json_request.audio_data:
+                try:
+                    audio_bytes = base64.b64decode(json_request.audio_data)
+                    final_message = json_request.message or ""
+                except Exception as e:
+                    raise HTTPException(status_code=400, detail=f"Invalid base64 audio data: {str(e)}")
+            # Handle text message
+            elif json_request.message:
+                final_message = json_request.message
+            
+            # Use session_id from JSON body if provided
+            if json_request.session_id:
+                final_session_id = json_request.session_id
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="Invalid JSON in request body")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Invalid request format: {str(e)}")
     
     # Handle form data (for file uploads or form-based text)
-    elif message:
-        final_message = message
+    elif "multipart/form-data" in content_type or message:
+        if message:
+            final_message = message
     
     # Handle audio file upload
     if audio_file:
@@ -85,7 +91,6 @@ async def ai_agent_message(
     
     # Validate that either message or audio is provided
     if not final_message and not audio_bytes:
-        from fastapi import HTTPException
         raise HTTPException(
             status_code=400, 
             detail="Either 'message' (text), 'audio_data' (base64 audio), or 'audio_file' (file upload) must be provided"

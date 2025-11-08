@@ -1,9 +1,12 @@
 from fastapi import FastAPI, Request
 from pydantic import BaseModel
+from views import ai_agent
+
 import uvicorn
 
 app = FastAPI(title='Ai Agent CW', version='1.0.0')
 
+app.include_router(ai_agent.router, prefix='/ai-agent')
 
 class Model(BaseModel):
     message: str

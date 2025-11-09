@@ -1,9 +1,12 @@
 from domain import ai_agent 
-from fastapi import APIRouter, File, UploadFile, Form, Query, Body, Request
+from fastapi import APIRouter, File, UploadFile, Form, Query, Body, Request, HTTPException
 from typing import Optional
 from pydantic import BaseModel
 import base64
 import json
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -96,9 +99,25 @@ async def ai_agent_message(
             detail="Either 'message' (text), 'audio_data' (base64 audio), or 'audio_file' (file upload) must be provided"
         )
     
-    return ai_agent.AiAgent(
-        message=final_message,
-        session_id=final_session_id,
-        audio_bytes=audio_bytes,
-        audio_file_path=audio_file_path
-    ).generate_response()
+    try:
+        return ai_agent.AiAgent(
+            message=final_message,
+            session_id=final_session_id,
+            audio_bytes=audio_bytes,
+            audio_file_path=audio_file_path
+        ).generate_response()
+    except ValueError as e:
+        # Handle audio conversion errors
+        error_message = str(e)
+        if "conversion" in error_message.lower() or "ffmpeg" in error_message.lower() or "pydub" in error_message.lower():
+            raise HTTPException(
+                status_code=500,
+                detail=f"Audio processing error: {error_message}. Please ensure the audio file is in a supported format (WAV, FLAC, OGG) or that the server has audio conversion tools installed."
+            )
+        raise HTTPException(status_code=400, detail=error_message)
+    except Exception as e:
+        logger.error(f"Unexpected error processing request: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Internal server error: {str(e)}"
+        )
